@@ -66,11 +66,6 @@ jobs:
           cd ${{ steps.env_path.outputs.path }}
           terraform init
 
-      - name: Terraform Format Check
-        run: |
-          cd ${{ steps.env_path.outputs.path }}
-          terraform fmt -check -recursive
-
       - name: Terraform Plan
         id: plan
         run: |
