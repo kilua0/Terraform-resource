@@ -1,5 +1,6 @@
 name: Terraform Deploy
 
+# Trigger: Manual workflow dispatch with environment selection
 on:
   workflow_dispatch:
     inputs:
@@ -21,6 +22,7 @@ on:
           - dev-a
           - dev-b
 
+# Global environment variables used across all jobs
 env:
   AWS_REGION: us-east-1
   TF_VERSION: 1.0
@@ -29,18 +31,25 @@ jobs:
   terraform_plan:
     name: 'Terraform Plan - ${{ inputs.environment }}'
     runs-on: ubuntu-latest
+    # Export plan output for downstream jobs to consume
     outputs:
       tfplan: ${{ steps.plan.outputs.stdout }}
     
     steps:
+      # Checkout the repository code to access Terraform configurations
+      # Why needed: Provides access to the infrastructure-as-code files required for planning and deployment
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # Install and configure Terraform with the specified version (1.0)
+      # Why needed: Ensures consistent Terraform version across all environments and prevents version conflicts
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
+      # Authenticate with AWS using stored credentials (stored as GitHub secrets)
+      # Why needed: Allows Terraform to authenticate and access AWS resources for planning and deployment
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
@@ -48,6 +57,8 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
+      # Determine the correct environment path and variables file based on input selection
+      # Why needed: Enables dynamic deployment to different environments (dev-a, dev-b, prod, release) with separate configurations
       - name: Determine environment path
         id: env_path
         run: |
@@ -61,11 +72,15 @@ jobs:
             echo "display_env=${{ inputs.environment }}" >> $GITHUB_OUTPUT
           fi
 
+      # Initialize Terraform in the selected environment directory
+      # Why needed: Downloads required providers and configures backend state storage (e.g., S3) for infrastructure state management
       - name: Terraform Init
         run: |
           cd ${{ steps.env_path.outputs.path }}
           terraform init
 
+      # Generate a Terraform execution plan showing what changes will be made
+      # Why needed: Previews all infrastructure changes before applying them, enabling review and catch potential issues early
       - name: Terraform Plan
         id: plan
         run: |
@@ -74,6 +89,8 @@ jobs:
           terraform show -json tfplan > tfplan.json
         continue-on-error: true
 
+      # Store the plan artifact for 5 days to enable retrieval during the apply phase
+      # Why needed: Persists the plan between jobs so terraform apply uses the exact same plan, ensuring consistency and preventing drift
       - name: Upload Plan Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -81,6 +98,8 @@ jobs:
           path: ${{ steps.env_path.outputs.path }}/tfplan
           retention-days: 5
 
+      # Post a summary comment on pull requests showing resource changes (adds, updates, deletes)
+      # Why needed: Provides visibility to reviewers about infrastructure changes before merge, facilitating code review and approvals
       - name: Post Plan to PR
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v6
@@ -110,16 +129,22 @@ jobs:
 
   approval:
     name: 'Approval Required - ${{ inputs.environment }}'
+    # Only run this job for production deployments
     if: inputs.environment == 'prod'
     needs: terraform_plan
     runs-on: ubuntu-latest
+    # Leverage GitHub's environment protection rules to enforce manual approval
     environment:
       name: ${{ inputs.environment }}
     
     steps:
+      # Checkout code for consistency with other jobs (minimal requirement)
+      # Why needed: Ensures the workflow has access to repository context and can reference any required files
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # Display approval requirement status and instructions to the user
+      # Why needed: Communicates to the operator that the deployment is waiting for lead approval and where to find approval controls
       - name: Display Plan Summary
         run: |
           echo "## 🔒 Production Deployment - Approval Required"
@@ -133,6 +158,8 @@ jobs:
           echo "Your lead must approve this deployment before it proceeds to apply."
           echo "Check the 'Environment' section at the right to approve or reject."
 
+      # Log successful reach of approval stage for audit and troubleshooting purposes
+      # Why needed: Provides confirmation that the workflow progressed correctly to the approval gate, useful for audit trails
       - name: Approval Status
         run: |
           echo "✅ Production approval stage reached"
@@ -140,21 +167,30 @@ jobs:
 
   terraform_apply:
     name: 'Terraform Apply - ${{ inputs.environment }}'
+    # Wait for both plan and approval (if prod) to complete before running
     needs: [terraform_plan, approval]
+    # Skip apply if it's production and approval was rejected; otherwise proceed
     if: always() && (inputs.environment != 'prod' || needs.approval.result == 'success')
     runs-on: ubuntu-latest
+    # Enforce environment protections and approval requirements
     environment:
       name: ${{ inputs.environment }}
     
     steps:
+      # Checkout repository code to access Terraform configurations
+      # Why needed: Provides access to Terraform files required to initialize and apply infrastructure changes
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # Install Terraform with the specified version matching the plan phase
+      # Why needed: Ensures the same Terraform version is used for both plan and apply, preventing compatibility issues
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
+      # Authenticate with AWS credentials for infrastructure provisioning
+      # Why needed: Enables Terraform to communicate with AWS APIs and create/modify/delete infrastructure resources
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
@@ -162,6 +198,8 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
+      # Determine the environment path and configuration files matching the plan phase
+      # Why needed: Ensures consistency between plan and apply phases by using identical paths and variable files
       - name: Determine environment path
         id: env_path
         run: |
@@ -175,22 +213,30 @@ jobs:
             echo "display_env=${{ inputs.environment }}" >> $GITHUB_OUTPUT
           fi
 
+      # Retrieve the previously generated plan artifact from the plan phase
+      # Why needed: Uses the same vetted plan from the planning phase, ensuring that what was approved is exactly what gets applied
       - name: Download Plan Artifact
         uses: actions/download-artifact@v4
         with:
           name: tfplan-${{ steps.env_path.outputs.display_env }}
           path: ${{ steps.env_path.outputs.path }}
 
+      # Initialize Terraform backend state configuration in the target environment
+      # Why needed: Ensures Terraform can access the correct state file location before applying changes
       - name: Terraform Init
         run: |
           cd ${{ steps.env_path.outputs.path }}
           terraform init
 
+      # Execute the previously planned changes to create/update/delete AWS resources
+      # Why needed: Implements the infrastructure changes that were reviewed and approved, moving from planned to actual state
       - name: Terraform Apply
         run: |
           cd ${{ steps.env_path.outputs.path }}
           terraform apply -auto-approve tfplan
 
+      # Extract and display Terraform outputs (e.g., instance IPs, DNS names, endpoints)
+      # Why needed: Captures deployment results and key infrastructure information for operators and documentation
       - name: Terraform Output
         id: output
         run: |
@@ -204,11 +250,15 @@ jobs:
 
   notify:
     name: 'Deployment Notification'
+    # Run after plan and apply stages to summarize results
     needs: [terraform_plan, terraform_apply]
     runs-on: ubuntu-latest
+    # Always run to provide status updates even if previous jobs failed
     if: always()
     
     steps:
+      # Determine deployment status based on job results (success, failure, or approval pending)
+      # Why needed: Classifies the outcome of the deployment workflow to provide appropriate messaging
       - name: Determine job status
         id: status
         run: |
@@ -223,6 +273,8 @@ jobs:
             echo "message=Deployment failed - check logs for details" >> $GITHUB_OUTPUT
           fi
 
+      # Output final deployment status with details (environment, variant, actor, result)
+      # Why needed: Communicates deployment outcome to users and audit logs, indicating whether action is required or deployment is complete
       - name: Deployment notification
         run: |
           echo "## ${{ steps.status.outputs.status }}"
