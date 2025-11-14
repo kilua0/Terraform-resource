@@ -183,3 +183,9 @@ jobs:
           cd environments/dev
           terraform plan -var-file="dev-b.tfvars" -lock=false
         continue-on-error: true
+
+
+
+
+
+        
