@@ -1,5 +1,6 @@
 name: Terraform Destroy
 
+# Trigger: Manual workflow dispatch with environment selection and destruction confirmation
 on:
   workflow_dispatch:
     inputs:
@@ -25,6 +26,7 @@ on:
         required: true
         default: ''
 
+# Global environment variables used across all jobs
 env:
   AWS_REGION: us-east-1
   TF_VERSION: 1.0
@@ -35,6 +37,9 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
+      # Verify that the user entered the exact confirmation token "DESTROY"
+      # Why needed: Prevents accidental or unauthorized destruction of infrastructure by requiring explicit confirmation
+      # This acts as a safety gate to ensure only intentional destroy operations proceed
       - name: Validate confirmation
         run: |
           if [ "${{ inputs.confirm_destroy }}" != "DESTROY" ]; then
@@ -46,20 +51,28 @@ jobs:
 
   terraform_destroy:
     name: 'Terraform Destroy - ${{ inputs.environment }}'
+    # Wait for validation to succeed before proceeding with actual destruction
     needs: validate_destroy
     runs-on: ubuntu-latest
+    # Enforce environment protection rules and require approvals (if configured in GitHub)
     environment:
       name: ${{ inputs.environment }}
     
     steps:
+      # Checkout the repository code to access Terraform configurations
+      # Why needed: Provides access to the infrastructure-as-code files required to identify and destroy resources
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # Install and configure Terraform with the specified version (1.0)
+      # Why needed: Ensures consistent Terraform version across all operations and prevents version-related compatibility issues
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
+      # Authenticate with AWS using stored credentials from GitHub secrets
+      # Why needed: Allows Terraform to authenticate and access AWS resources that will be destroyed
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
@@ -67,6 +80,8 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
+      # Determine the correct environment path and variables file based on selected environment
+      # Why needed: Ensures destruction targets the correct environment (dev-a, dev-b, prod, or release) with appropriate configuration
       - name: Determine environment path
         id: env_path
         run: |
@@ -80,16 +95,24 @@ jobs:
             echo "display_env=${{ inputs.environment }}" >> $GITHUB_OUTPUT
           fi
 
+      # Initialize Terraform in the selected environment directory
+      # Why needed: Downloads required providers and configures backend state storage to access the current infrastructure state
       - name: Terraform Init
         run: |
           cd ${{ steps.env_path.outputs.path }}
           terraform init
 
+      # Execute terraform destroy with auto-approval to remove all managed infrastructure
+      # Why needed: Completely removes all AWS resources that were created and managed by Terraform for the selected environment
+      # The -auto-approve flag skips interactive confirmation since the user already confirmed via the validation step
       - name: Terraform Destroy
         run: |
           cd ${{ steps.env_path.outputs.path }}
           terraform destroy -var-file="${{ steps.env_path.outputs.tfvars_file }}" -auto-approve
 
+      # Output a warning notification indicating destruction has been completed
+      # Why needed: Confirms completion to the operator and provides audit trail information (environment, variant, actor)
+      # Helps track who triggered the destruction and when for compliance and troubleshooting purposes
       - name: Destruction notification
         run: |
           echo "## ⚠️ Destruction Complete"
