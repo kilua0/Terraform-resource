@@ -80,7 +80,7 @@ jobs:
         continue-on-error: true
 
       - name: Upload Plan Artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: tfplan-${{ steps.env_path.outputs.display_env }}
           path: ${{ steps.env_path.outputs.path }}/tfplan
@@ -181,7 +181,7 @@ jobs:
           fi
 
       - name: Download Plan Artifact
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: tfplan-${{ steps.env_path.outputs.display_env }}
           path: ${{ steps.env_path.outputs.path }}
