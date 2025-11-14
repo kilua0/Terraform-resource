@@ -21,6 +21,7 @@ terraform {
     key            = "terraformv2/environments/release/terraform.tfstate"
     region         = "us-east-1"
     encrypt        = true
+    use_lockfile = true
     # S3 native locking explanation:
     # Terraform will attempt to create a temporary lock object alongside
     # the state file (for example: terraform.tfstate.tflock) using S3's
@@ -31,8 +32,6 @@ terraform {
     # When the operation finishes, Terraform deletes the lock object.
     # This prevents concurrent modifications of the same remote state
     # and avoids corruption or lost updates.
-
-    use_s3_native_locking = true
   }
 
   required_providers {

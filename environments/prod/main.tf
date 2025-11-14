@@ -21,18 +21,17 @@ terraform {
     key            = "terraformv2/environments/prod/terraform.tfstate"
     region         = "us-east-1"
     encrypt        = true
-      # S3 native locking explanation:
-      # Terraform will attempt to create a temporary lock object alongside
-      # the state file (for example: terraform.tfstate.tflock) using S3's
-      # conditional-write capability (If-None-Match). The PUT will succeed
-      # only if the lock object doesn't already exist. If another process
-      # has already created the lock object, the conditional write will
-      # fail and Terraform will not proceed with state-changing operations.
-      # When the operation finishes, Terraform deletes the lock object.
-      # This prevents concurrent modifications of the same remote state
-      # and avoids corruption or lost updates.
-
-    use_s3_native_locking = true
+    use_lockfile = true
+    # S3 native locking explanation:
+    # Terraform will attempt to create a temporary lock object alongside
+    # the state file (for example: terraform.tfstate.tflock) using S3's
+    # conditional-write capability (If-None-Match). The PUT will succeed
+    # only if the lock object doesn't already exist. If another process
+    # has already created the lock object, the conditional write will
+    # fail and Terraform will not proceed with state-changing operations.
+    # When the operation finishes, Terraform deletes the lock object.
+    # This prevents concurrent modifications of the same remote state
+    # and avoids corruption or lost updates.
   }
 
   required_providers {
